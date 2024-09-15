@@ -3,15 +3,18 @@ pub mod config;
 pub mod entry;
 pub mod error;
 pub mod resource;
-
+pub mod commands;
 
 use std::{
     env,
     path::PathBuf,
     process::{exit, Command},
 };
-use clap::{Parser, Subcommand,  builder::{styling, Styles},};
+use clap::{Parser, Subcommand, builder::{styling, Styles}};
+use log::log;
 use vit_logger::{VitLogger, Config as VitConfig};
+use crate::commands::build_entry::build_entry_command;
+use crate::commands::version::version_command;
 use crate::error::CommandExt;
 
 #[derive(Parser, Debug)]
@@ -74,16 +77,10 @@ enum Commands {
     },
 
     #[command(name = "current", about = "Show the name of current build")]
-    Current {
-        #[arg(short = 'v', long = "verbose")]
-        verbose: bool,
-    },
+    Current,
 
     #[command(name = "prefix", about = "Show the prefix of the current build")]
-    Prefix {
-        #[arg(short = 'v', long = "verbose")]
-        verbose: bool,
-    },
+    Prefix,
 
     #[command(name = "version", about = "Show the base version of the current build")]
     Version {
@@ -110,16 +107,12 @@ enum Commands {
     #[command(name = "archive", about = "archive build into *.tar.xz (require pixz)")]
     Archive {
         name: String,
-        #[arg(short = 'v', long = "verbose")]
-        verbose: bool,
     },
 
     #[command(name = "expand", about = "expand archive")]
     Expand {
         #[arg()]
         path: PathBuf,
-        #[arg(short = 'v', long = "verbose")]
-        verbose: bool,
     },
 
     #[command(name = "edit", about = "Edit cargo-llvm configure in your editor")]
@@ -137,39 +130,40 @@ fn main() -> error::Result<()> {
     VitLogger::new().init(
         VitConfig::builder()
             .text(true)
-            .target(true)
+            .target(verbose)
             .file(verbose)
-            .line(true)
+            .line(verbose)
             .time(false)
             .finish()
             .expect("Error building config"),
     );
 
-    match opt.command {
-        Commands::Init {} => config::init_config()?,
+    let result = match opt.command {
+        Commands::Init {} => config::init_config(),
 
-        Commands::Builds {} => {
-            let builds = build::builds()?;
-            let max = builds.iter().map(|b| b.name().len()).max().unwrap();
-            for b in &builds {
-                println!(
-                    "{name:<width$}: {prefix}",
-                    name = b.name(),
-                    prefix = b.prefix().display(),
-                    width = max
-                );
-            }
-        }
-
-        Commands::Entries {} => {
-            if let Ok(entries) = entry::load_entries() {
-                for entry in &entries {
-                    println!("{}", entry.name());
-                }
-            } else {
-                panic!("No entries. Please define entries in $XDG_CONFIG_HOME/cargo-llvm/entry.toml");
-            }
-        }
+        // Commands::Builds {} => {
+        //     let builds = build::builds()?;
+        //     let max = builds.iter().map(|b| b.name().len()).max().unwrap();
+        //     for b in &builds {
+        //         println!(
+        //             "{name:<width$}: {prefix}",
+        //             name = b.name(),
+        //             prefix = b.prefix().display(),
+        //             width = max
+        //         );
+        //     }
+        // }
+        //
+        // Commands::Entries {} => {
+        //     if let Ok(entries) = entry::load_entries() {
+        //         for entry in &entries {
+        //             println!("{}", entry.name());
+        //         }
+        //     } else {
+        //         panic!("No entries. Please define entries in $XDG_CONFIG_HOME/cargo-llvm/entry.toml");
+        //     }
+        // }
+        //
         Commands::BuildEntry {
             name,
             update,
@@ -178,104 +172,81 @@ fn main() -> error::Result<()> {
             builder,
             nproc,
             build_type,
-        } => {
-            let mut entry = entry::load_entry(&name)?;
-            let nproc = nproc.unwrap_or_else(num_cpus::get);
-            if let Some(builder) = builder {
-                entry.set_builder(&builder)?;
+        } => build_entry_command(name, update, clean, discard, builder, nproc, build_type),
+        Commands::Current => {
+            let build = build::seek_build()?;
+            log::info!("Current build: {}", build.name());
+            if verbose {
+                if let Some(env) = build.env_path() {
+                    log::debug!("set by {}", env.display());
+                }
             }
-            if let Some(build_type) = build_type {
-                entry.set_build_type(build_type)?;
-            }
-            if discard {
-                entry.clean_cache_dir().unwrap();
-            }
-            entry.checkout().unwrap();
-            if update {
-                entry.update().unwrap();
-            }
-            if clean {
-                entry.clean_build_dir().unwrap();
-            }
-            entry.build(nproc).unwrap();
-        }
 
-        Commands::Current { verbose } => {
-            let build = build::seek_build()?;
-            println!("{}", build.name());
-            if verbose {
-                if let Some(env) = build.env_path() {
-                    eprintln!("set by {}", env.display());
-                }
-            }
+            Ok(())
         }
-        Commands::Prefix { verbose } => {
+        Commands::Prefix => {
             let build = build::seek_build()?;
-            println!("{}", build.prefix().display());
+            log::info!("{}", build.prefix().display());
             if verbose {
                 if let Some(env) = build.env_path() {
-                    eprintln!("set by {}", env.display());
+                    log::debug!("set by {}", env.display());
                 }
             }
+
+            Ok(())
         }
         Commands::Version {
             name,
             major,
             minor,
             patch,
-        } => {
-            let build = if let Some(name) = name {
-                get_existing_build(&name)
-            } else {
-                build::seek_build()?
-            };
-            let version = build.version()?;
-            if !(major || minor || patch) {
-                println!("{}.{}.{}", version.major, version.minor, version.patch);
-            } else {
-                if major {
-                    print!("{}", version.major);
-                }
-                if minor {
-                    print!("{}", version.minor);
-                }
-                if patch {
-                    print!("{}", version.patch);
-                }
-                println!();
-            }
-        }
-
+        } => version_command(name, major, minor, patch),
         Commands::Global { name } => {
             let build = get_existing_build(&name);
-            build.set_global()?;
+            build.set_global()
         }
         Commands::Local { name, path } => {
             let build = get_existing_build(&name);
             let path = path.unwrap_or_else(|| env::current_dir().unwrap());
-            build.set_local(&path)?;
+            build.set_local(&path)
         }
-
-        Commands::Archive { name, verbose } => {
+        Commands::Archive { name } => {
             let build = get_existing_build(&name);
-            build.archive(verbose)?;
+            build.archive(verbose)
         }
-        Commands::Expand { path, verbose } => {
-            build::expand(&path, verbose)?;
+        Commands::Expand { path } => {
+            build::expand(&path, verbose)
         }
-
         Commands::Edit {} => {
-            let editor = env::var("EDITOR").expect("EDITOR environmental value is not set");
+            let editor = env::var("EDITOR").map_err(|_| {
+                log::error!("No EDITOR environment variable set");
+                exit(1);
+            }).unwrap();
             Command::new(editor)
                 .arg(config::config_dir()?.join(config::ENTRY_TOML))
-                .check_run()?;
+                .check_run()
         }
+        //
+        // Commands::Zsh {} => {
+        //     let src = include_str!("../cargo-llvm.zsh");
+        //     println!("{}", src);
+        // }
+        _ => {
+            eprintln!("Subcommand not implemented");
+            exit(1);
+        }
+    };
 
-        Commands::Zsh {} => {
-            let src = include_str!("../cargo-llvm.zsh");
-            println!("{}", src);
+    match result {
+        Ok(_) => {
+            log::debug!("Done");
+        }
+        Err(e) => {
+            log::error!("{}", e);
+            exit(1);
         }
     }
+
     Ok(())
 }
 
@@ -284,7 +255,7 @@ fn get_existing_build(name: &str) -> build::Build {
     if build.exists() {
         build
     } else {
-        eprintln!("Build '{}' does not exists", name);
+        log::error!("Build '{}' does not exists", name);
         exit(1)
     }
 }

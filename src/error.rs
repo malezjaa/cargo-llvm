@@ -82,6 +82,9 @@ pub enum Error {
         stdout: Option<String>,
         stderr: Option<String>,
     },
+    
+    #[error("No EDITOR environment variable set")]
+    NoEditor,
 }
 
 impl Error {

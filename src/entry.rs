@@ -134,9 +134,9 @@ impl CMakeGenerator {
                 vec!["-G", "Visual Studio 15 2017 Win64", "-Thost=x64"]
             }
         }
-        .into_iter()
-        .map(|s| s.into())
-        .collect()
+            .into_iter()
+            .map(|s| s.into())
+            .collect()
     }
 
     /// Option for cmake build mode (`cmake --build` command)
@@ -154,18 +154,12 @@ impl CMakeGenerator {
 }
 
 /// CMake build type
-#[derive(Deserialize, Debug, Clone, Copy, PartialEq)]
+#[derive(Deserialize, Debug, Clone, Copy, PartialEq, Default)]
 pub enum BuildType {
     Debug,
-    Release,
+    #[default] Release,
     RelWithDebInfo,
     MinSizeRel,
-}
-
-impl Default for BuildType {
-    fn default() -> Self {
-        BuildType::Release
-    }
 }
 
 impl FromStr for BuildType {
@@ -290,6 +284,15 @@ fn load_entry_toml(toml_str: &str) -> Result<Vec<Entry>> {
 
 pub fn official_releases() -> Vec<Entry> {
     vec![
+        Entry::official(18, 1, 0),
+        Entry::official(17, 0, 2),
+        Entry::official(17, 0, 0),
+        Entry::official(16, 0, 6),
+        Entry::official(16, 0, 0),
+        Entry::official(15, 0, 7),
+        Entry::official(15, 0, 0),
+        Entry::official(14, 0, 6),
+        Entry::official(14, 0, 0),
         Entry::official(13, 0, 0),
         Entry::official(12, 0, 1),
         Entry::official(12, 0, 0),

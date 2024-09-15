@@ -118,7 +118,7 @@ fn local_builds() -> Result<Vec<Build>> {
         .unwrap()
         .filter_map(|path| {
             if let Ok(path) = path {
-                path.parent().map(|path| Build::from_path(path))
+                path.parent().map(Build::from_path)
             } else {
                 None
             }
@@ -157,7 +157,7 @@ fn load_global_env() -> Result<Option<Build>> {
 
 pub fn seek_build() -> Result<Build> {
     // Seek .llvmenv from $PWD
-    let mut path = env::current_dir().unwrap();
+    let mut path = env::current_dir()?;
     loop {
         if let Some(mut build) = load_local_env(&path)? {
             build.llvmenv = Some(path.join(LLVMENV_FN));
