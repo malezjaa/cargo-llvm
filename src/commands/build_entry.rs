@@ -10,6 +10,9 @@ pub fn build_entry_command(
     nproc: Option<usize>,
     build_type: Option<BuildType>,
 ) -> Result<()> {
+    log::debug!("build_entry_command: name={}, update={}, clean={}, discard={}, builder={:?}, nproc={:?}, build_type={:?}",
+        name, update, clean, discard, builder, nproc, build_type);
+    
     let mut entry = entry::load_entry(&name)?;
     let nproc = nproc.unwrap_or_else(num_cpus::get);
     if let Some(builder) = builder {

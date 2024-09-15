@@ -23,7 +23,7 @@ pub enum Error {
     #[error("Unsupported cmake build type: {build_type}")]
     UnsupportedBuildType { build_type: String },
 
-    #[error("Configure file already exists: {path}")]
+    #[error("Config file already exists: {path}")]
     ConfigureAlreadyExists { path: PathBuf },
 
     #[error("Failed to get LLVM version: {version}")]

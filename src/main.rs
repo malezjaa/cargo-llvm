@@ -141,29 +141,36 @@ fn main() -> error::Result<()> {
     let result = match opt.command {
         Commands::Init {} => config::init_config(),
 
-        // Commands::Builds {} => {
-        //     let builds = build::builds()?;
-        //     let max = builds.iter().map(|b| b.name().len()).max().unwrap();
-        //     for b in &builds {
-        //         println!(
-        //             "{name:<width$}: {prefix}",
-        //             name = b.name(),
-        //             prefix = b.prefix().display(),
-        //             width = max
-        //         );
-        //     }
-        // }
-        //
-        // Commands::Entries {} => {
-        //     if let Ok(entries) = entry::load_entries() {
-        //         for entry in &entries {
-        //             println!("{}", entry.name());
-        //         }
-        //     } else {
-        //         panic!("No entries. Please define entries in $XDG_CONFIG_HOME/cargo-llvm/entry.toml");
-        //     }
-        // }
-        //
+        Commands::Builds {} => {
+            let builds = build::builds()?;
+            let max = builds.iter().map(|b| b.name().len()).max().unwrap();
+            log::info!("Builds:");
+            for b in &builds {
+                println!(
+                    "{name:<width$}: {prefix}",
+                    name = b.name(),
+                    prefix = b.prefix().display(),
+                    width = max
+                );
+            }
+
+            Ok(())
+        }
+
+        Commands::Entries {} => {
+            if let Ok(entries) = entry::load_entries() {
+                log::info!("Entries:");
+
+                for entry in &entries {
+                    println!("     - {}", entry.name());
+                }
+            } else {
+                panic!("No entries. Please define entries in $XDG_CONFIG_HOME/cargo-llvm/entry.toml");
+            }
+
+            Ok(())
+        }
+
         Commands::BuildEntry {
             name,
             update,
@@ -226,11 +233,6 @@ fn main() -> error::Result<()> {
                 .arg(config::config_dir()?.join(config::ENTRY_TOML))
                 .check_run()
         }
-        //
-        // Commands::Zsh {} => {
-        //     let src = include_str!("../cargo-llvm.zsh");
-        //     println!("{}", src);
-        // }
         _ => {
             eprintln!("Subcommand not implemented");
             exit(1);

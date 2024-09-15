@@ -5,7 +5,7 @@ use std::path::PathBuf;
 
 use crate::error::*;
 
-pub const APP_NAME: &str = "llvmenv";
+pub const APP_NAME: &str = "cargo-llvm";
 pub const ENTRY_TOML: &str = "entry.toml";
 
 const LLVM_MIRROR: &str = include_str!("llvm-mirror.toml");
@@ -43,9 +43,9 @@ pub fn init_config() -> Result<()> {
     let dir = config_dir()?;
     let entry = dir.join(ENTRY_TOML);
     if !entry.exists() {
-        info!("Create default entry setting: {}", entry.display());
         let mut f = fs::File::create(&entry).with(&entry)?;
         f.write(LLVM_MIRROR.as_bytes()).with(&entry)?;
+        info!("Created default entry setting: {}", entry.display());
         Ok(())
     } else {
         Err(Error::ConfigureAlreadyExists { path: entry })
