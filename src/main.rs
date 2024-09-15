@@ -5,13 +5,13 @@ pub mod error;
 pub mod resource;
 
 
-use simplelog::*;
 use std::{
     env,
     path::PathBuf,
     process::{exit, Command},
 };
 use clap::{Parser, Subcommand,  builder::{styling, Styles},};
+use vit_logger::{VitLogger, Config as VitConfig};
 use crate::error::CommandExt;
 
 #[derive(Parser, Debug)]
@@ -26,6 +26,9 @@ use crate::error::CommandExt;
         .literal(styling::AnsiColor::Green.on_default())
 )]
 struct Program {
+    #[arg(global = true, short, long)]
+    verbose: bool,
+
     #[command(subcommand)]
     command: Commands,
 }
@@ -127,18 +130,21 @@ enum Commands {
 }
 
 fn main() -> error::Result<()> {
-    // TermLogger::init(
-    //     LevelFilter::Info,
-    //     ConfigBuilder::new().set_time_to_local(true).build(),
-    //     TerminalMode::Mixed,
-    // )
-    //     .or(SimpleLogger::init(
-    //         LevelFilter::Info,
-    //         ConfigBuilder::new().set_time_to_local(true).build(),
-    //     ))
-    //     .unwrap();
-
     let opt = Program::parse();
+    let verbose = opt.verbose;
+
+    std::env::set_var("RUST_LOG", if verbose { "trace" } else { "info" });
+    VitLogger::new().init(
+        VitConfig::builder()
+            .text(true)
+            .target(true)
+            .file(verbose)
+            .line(true)
+            .time(false)
+            .finish()
+            .expect("Error building config"),
+    );
+
     match opt.command {
         Commands::Init {} => config::init_config()?,
 
