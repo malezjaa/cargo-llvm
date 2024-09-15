@@ -253,7 +253,8 @@ async fn download(
     let bar = ProgressBar::new(content_length)
         .with_style(ProgressStyle::default_bar()
             .template("{spinner:.green} [{elapsed_precise}] [{bar:38.cyan/blue}] {bytes}/{total_bytes} ({eta}) [{bytes_per_sec}]")
-            .progress_chars("#>-"));
+            // TODO: use ? operator
+            .unwrap().progress_chars("#>-"));
 
     Ok(Download {
         stream: block_on_stream(req.bytes_stream()),

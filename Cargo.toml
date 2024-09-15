@@ -31,7 +31,7 @@ serde = "1.0.117"
 serde_derive = "1.0.117"
 shellexpand = "3.1.0"
 simplelog = "0.12.2"
-structopt = "0.3.21"
+clap = { version = "4.5.17", features = ["derive"] }
 tar = "0.4.30"
 tempfile= "3.1.0"
 thiserror = "1.0.22"
