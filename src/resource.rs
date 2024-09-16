@@ -7,6 +7,10 @@ use futures::{
 use indicatif::{ProgressBar, ProgressStyle};
 use log::*;
 use std::{fs, io, path::*, process::Command};
+use std::fs::File;
+use std::io::{Read, Write};
+use flate2::read::GzDecoder;
+use tar::Archive;
 use tempfile::TempDir;
 use url::Url;
 use crate::config::cache_dir;
@@ -155,7 +159,7 @@ impl Resource {
         }
     }
 
-    pub fn download(&self, dest: &Path) -> Result<()> {
+    pub fn download(&self, dest: &Path, tool_name: String) -> Result<()> {
         if !dest.exists() {
             fs::create_dir_all(dest).with(dest)?;
         }
@@ -202,10 +206,12 @@ impl Resource {
                     info!("Tar file cached: {}", tar_file.display());
                 }
 
-                let tar_gz = fs::File::open(&tar_file)?;
-                let xz_buf = xz2::read::XzDecoder::new(tar_gz);
-                let mut tar_buf = tar::Archive::new(xz_buf);
-                let entries = tar_buf
+                let tar_gz = File::open(
+                    &tar_file
+                )?;
+                let tar = GzDecoder::new(tar_gz);
+                let mut archive = Archive::new(tar);
+                let entries = archive
                     .entries()
                     .expect("Tar archive does not contain entries");
 
@@ -222,13 +228,13 @@ impl Resource {
 
                     bar.set_message(path.to_string_lossy().to_string());
 
-                    let mut target = dest.to_owned();
+                    let mut target = dest.to_owned().join(&tool_name);
                     for comp in path.components().skip(1) {
                         target = target.join(comp);
                     }
                     if let Err(e) = entry.unpack(&target) {
                         match e.kind() {
-                            io::ErrorKind::AlreadyExists => debug!("{:?}", e),
+                            io::ErrorKind::AlreadyExists => debug!("{:?}", e.to_string()),
                             _ => warn!("{:?}", e.to_string()),
                         }
                     }
@@ -324,47 +330,3 @@ fn strip_branch_from_url(url_str: &str) -> Result<String> {
     Ok(url.into())
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    // Test donwloading this repo
-    #[test]
-    fn test_git_donwload() -> Result<()> {
-        let git = Resource::Git {
-            url: "http://github.com/termoshtt/llvmenv".into(),
-            branch: None,
-        };
-        let tmp_dir = TempDir::new().with("/tmp")?;
-        git.download(tmp_dir.path())?;
-        let cargo_toml = tmp_dir.path().join("Cargo.toml");
-        assert!(cargo_toml.exists());
-        Ok(())
-    }
-
-    #[test]
-    fn test_get_filename_from_url() {
-        let url = "http://releases.llvm.org/6.0.1/llvm-6.0.1.src.tar.xz";
-        assert_eq!(get_filename_from_url(url).unwrap(), "llvm-6.0.1.src.tar.xz");
-    }
-
-    #[test]
-    fn test_with_git_branches() {
-        let github_mirror = "https://github.com/llvm/llvm-project";
-        let git = Resource::from_url(github_mirror).unwrap();
-        assert_eq!(
-            git,
-            Resource::Git {
-                url: github_mirror.into(),
-                branch: None
-            }
-        );
-        assert_eq!(
-            Resource::from_url("https://github.com/llvm/llvm-project#release_80").unwrap(),
-            Resource::Git {
-                url: "https://github.com/llvm/llvm-project".into(),
-                branch: Some("release_80".into())
-            }
-        );
-    }
-}

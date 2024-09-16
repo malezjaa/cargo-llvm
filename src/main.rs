@@ -66,6 +66,8 @@ enum Commands {
             help = "discard source directory for remote resources"
         )]
         discard: bool,
+        #[arg(short = 's', long = "skip-download", help = "If you already have the source")]
+        skip_download: bool,
         #[arg(short = 'j', long = "nproc")]
         nproc: Option<usize>,
         #[arg(
@@ -177,10 +179,11 @@ fn main() -> error::Result<()> {
             clean,
             discard,
             builder,
+            skip_download,
             nproc,
             build_type,
-        } => build_entry_command(name, update, clean, discard, builder, nproc, build_type),
-        
+        } => build_entry_command(name, update, clean, discard, builder, nproc, build_type, skip_download),
+
         Commands::Current => {
             let build = build::seek_build()?;
             log::info!("Current build: {}", build.name());
@@ -192,6 +195,7 @@ fn main() -> error::Result<()> {
 
             Ok(())
         }
+
         Commands::Prefix => {
             let build = build::seek_build()?;
             log::info!("{}", build.prefix().display());
