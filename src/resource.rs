@@ -9,7 +9,7 @@ use log::*;
 use std::{fs, io, path::*, process::Command};
 use tempfile::TempDir;
 use url::Url;
-
+use crate::config::cache_dir;
 use crate::error::*;
 
 /// Remote LLVM/Clang resource
@@ -128,13 +128,13 @@ impl Resource {
             .silent()
             .check_run()?;
         Command::new("git")
-            .args(&["remote", "add", "origin"])
+            .args(["remote", "add", "origin"])
             .arg(url_str)
             .current_dir(tmp_dir.path())
             .silent()
             .check_run()?;
         match Command::new("git")
-            .args(&["ls-remote"])
+            .args(["ls-remote"])
             .current_dir(tmp_dir.path())
             .silent()
             .check_run()
@@ -162,46 +162,81 @@ impl Resource {
         if !dest.is_dir() {
             return Err(io::Error::new(io::ErrorKind::Other, "Not a directory")).with(dest);
         }
+
         match self {
             Resource::Svn { url, .. } => Command::new("svn")
-                .args(&["co", url.as_str(), "-r", "HEAD"])
+                .args(["co", url.as_str(), "-r", "HEAD"])
                 .arg(dest)
                 .check_run()?,
             Resource::Git { url, branch } => {
                 info!("Git clone {}", url);
                 let mut git = Command::new("git");
-                git.args(&["clone", url.as_str(), "-q", "--depth", "1"])
+                git.args(["clone", url.as_str(), "-q", "--depth", "1"])
                     .arg(dest);
                 if let Some(branch) = branch {
-                    git.args(&["-b", branch]);
+                    git.args(["-b", branch]);
                 }
                 git.check_run()?;
             }
             Resource::Tar { url } => {
-                info!("Download Tar file: {}", url);
-                // This will be large, but at most ~100MB
-                let rt = tokio::runtime::Runtime::new()?;
-                let mut bytes = rt.block_on(download(url))?;
-                let xz_buf = xz2::read::XzDecoder::new(&mut bytes);
+                let filename = get_filename_from_url(url)?;
+                let cache_dir = cache_dir()?.join("cache");
+
+                if !cache_dir.exists() {
+                    fs::create_dir_all(&cache_dir).with(&cache_dir)?;
+                }
+
+                let tar_file = cache_dir.join(&filename);
+
+                if tar_file.exists() {
+                    info!("Using cached tar file: {}", tar_file.display());
+                } else {
+                    info!("Downloading tar file: {}", url);
+                    let rt = tokio::runtime::Runtime::new()?;
+                    let bytes = rt.block_on(download(url))?;
+
+                    drop(rt);
+
+                    fs::write(&tar_file, &bytes)?;
+
+                    info!("Tar file cached: {}", tar_file.display());
+                }
+
+                let tar_gz = fs::File::open(&tar_file)?;
+                let xz_buf = xz2::read::XzDecoder::new(tar_gz);
                 let mut tar_buf = tar::Archive::new(xz_buf);
                 let entries = tar_buf
                     .entries()
-                    .expect("Tar archive does not contains entry");
+                    .expect("Tar archive does not contain entries");
+
+                let bar = ProgressBar::new_spinner();
+                bar.set_style(
+                    ProgressStyle::default_spinner()
+                        .template("{spinner:.green} [{elapsed_precise}] Unpacking: {msg} [{pos}]")
+                        .expect("Invalid template")
+                );
 
                 for entry in entries {
-                    let mut entry = entry.expect("Invalid entry");
-                    let path = entry.path().expect("Filename is not a valid unicode");
+                    let mut entry = entry.expect("Invalid tar entry");
+                    let path = entry.path().expect("Invalid unicode in filename");
+
+                    bar.set_message(path.to_string_lossy().to_string());
+
                     let mut target = dest.to_owned();
                     for comp in path.components().skip(1) {
                         target = target.join(comp);
                     }
-                    if let Err(e) = entry.unpack(target) {
+                    if let Err(e) = entry.unpack(&target) {
                         match e.kind() {
                             io::ErrorKind::AlreadyExists => debug!("{:?}", e),
-                            _ => warn!("{:?}", e),
+                            _ => warn!("{:?}", e.to_string()),
                         }
                     }
+
+                    bar.inc(1);
                 }
+
+                bar.finish_with_message("Unpacking completed");
             }
         }
         Ok(())
@@ -223,21 +258,7 @@ impl Resource {
     }
 }
 
-struct Download<T> {
-    stream: T,
-    bytes: Option<bytes::Bytes>,
-    bar: ProgressBar,
-}
-
-impl<T> Drop for Download<T> {
-    fn drop(&mut self) {
-        self.bar.finish()
-    }
-}
-
-async fn download(
-    url: &str,
-) -> Result<Download<BlockingStream<impl Stream<Item = reqwest::Result<bytes::Bytes>>>>> {
+async fn download(url: &str) -> Result<Vec<u8>> {
     let req = reqwest::get(url).await?;
     let status = req.status();
     if !status.is_success() {
@@ -246,47 +267,34 @@ async fn download(
             status,
         });
     }
-    let content_length = req.headers()[reqwest::header::CONTENT_LENGTH]
-        .to_str()
-        .unwrap()
-        .parse()?;
+
+    let content_length = req
+        .headers()
+        .get(reqwest::header::CONTENT_LENGTH)
+        .and_then(|len| len.to_str().ok()?.parse().ok())
+        .unwrap_or(0);
+
     let bar = ProgressBar::new(content_length)
-        .with_style(ProgressStyle::default_bar()
-            .template("{spinner:.green} [{elapsed_precise}] [{bar:38.cyan/blue}] {bytes}/{total_bytes} ({eta}) [{bytes_per_sec}]")
-            // TODO: use ? operator
-            .unwrap().progress_chars("#>-"));
+        .with_style(
+            ProgressStyle::default_bar()
+                .template("{spinner:.green} [{elapsed_precise}] [{bar:38.cyan/blue}] {bytes}/{total_bytes} ({eta}) [{bytes_per_sec}]")
+                ?
+                .progress_chars("#>-")
+        );
 
-    Ok(Download {
-        stream: block_on_stream(req.bytes_stream()),
-        bytes: None,
-        bar,
-    })
-}
+    let mut bytes: Vec<u8> = Vec::new();
+    let stream = block_on_stream(req.bytes_stream());
 
-impl<T> io::Read for Download<T>
-where
-    T: Iterator<Item = reqwest::Result<bytes::Bytes>>,
-{
-    fn read(&mut self, mut buf: &mut [u8]) -> io::Result<usize> {
-        let mut bytes = if let Some(bytes) = self.bytes.take() {
-            bytes
-        } else {
-            match self.stream.next() {
-                Some(Ok(bytes)) => bytes,
-                Some(Err(err)) => return Err(io::Error::new(io::ErrorKind::Other, err)),
-                None => return Ok(0),
-            }
-        };
-        if bytes.len() > buf.len() {
-            self.bytes = Some(bytes.split_off(buf.len()));
-        } else {
-            buf = &mut buf[..bytes.len()];
-        }
-        buf.copy_from_slice(&bytes);
-        self.bar.inc(bytes.len() as u64);
-        Ok(bytes.len())
+    for chunk in stream {
+        let chunk = chunk.map_err(|err| io::Error::new(io::ErrorKind::Other, err))?;
+        bar.inc(chunk.len() as u64);
+        bytes.extend_from_slice(&chunk);
     }
+
+    bar.finish();
+    Ok(bytes)
 }
+
 
 fn get_filename_from_url(url_str: &str) -> Result<String> {
     let url = ::url::Url::parse(url_str).map_err(|_| Error::InvalidUrl {
@@ -342,7 +350,7 @@ mod tests {
 
     #[test]
     fn test_with_git_branches() {
-        let github_mirror = "https://github.com/llvm-mirror/llvm";
+        let github_mirror = "https://github.com/llvm/llvm-project";
         let git = Resource::from_url(github_mirror).unwrap();
         assert_eq!(
             git,
@@ -352,9 +360,9 @@ mod tests {
             }
         );
         assert_eq!(
-            Resource::from_url("https://github.com/llvm-mirror/llvm#release_80").unwrap(),
+            Resource::from_url("https://github.com/llvm/llvm-project#release_80").unwrap(),
             Resource::Git {
-                url: "https://github.com/llvm-mirror/llvm".into(),
+                url: "https://github.com/llvm/llvm-project".into(),
                 branch: Some("release_80".into())
             }
         );

@@ -92,7 +92,6 @@ impl Build {
             .arg(&self.name)
             .current_dir(data_dir()?)
             .check_run()?;
-        println!("{}", data_dir()?.join(filename).display());
         Ok(())
     }
 

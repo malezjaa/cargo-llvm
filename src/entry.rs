@@ -2,8 +2,8 @@
 //!
 //! entry.toml
 //! -----------
-//! **entry** in llvmenv describes how to compile LLVM/Clang, and set by `$XDG_CONFIG_HOME/llvmenv/entry.toml`.
-//! `llvmenv init` generates default setting:
+//! **entry** in cargo-llvm describes how to compile LLVM/Clang, and set by `$XDG_CONFIG_HOME/cargo-llvm/entry.toml`.
+//! `cargo-llvm init` generates default setting:
 //!
 //! ```toml
 //! [llvm-mirror]
@@ -49,17 +49,40 @@
 //! There is also pre-defined entries corresponding to the LLVM/Clang releases:
 //!
 //! ```shell
-//! $ llvmenv entries
-//! llvm-mirror
-//! 7.0.0
-//! 6.0.1
-//! 6.0.0
-//! 5.0.2
-//! 5.0.1
-//! 4.0.1
-//! 4.0.0
-//! 3.9.1
-//! 3.9.0
+//! $ cargo-llvm entries
+//
+//   info Entries:
+//       - 18.1.0
+//       - 17.0.2
+//       - 17.0.0
+//       - 16.0.6
+//       - 16.0.0
+//       - 15.0.7
+//       - 15.0.0
+//       - 14.0.6
+//       - 14.0.0
+//       - 13.0.0
+//       - 12.0.1
+//       - 12.0.0
+//       - 11.1.0
+//       - 11.0.0
+//       - 10.0.1
+//       - 10.0.0
+//       - 9.0.1
+//       - 8.0.1
+//       - 9.0.0
+//       - 8.0.0
+//       - 7.1.0
+//       - 7.0.1
+//       - 7.0.0
+//       - 6.0.1
+//       - 6.0.0
+//       - 5.0.2
+//       - 5.0.1
+//       - 4.0.1
+//       - 4.0.0
+//       - 3.9.1
+//       - 3.9.0
 //! ```
 //!
 //! These are compiled with the default setting as shown above. You have to create entry manually
@@ -78,7 +101,7 @@ use crate::{config::*, error::*, resource::*};
 /// - Official document: [CMake Generators](https://cmake.org/cmake/help/latest/manual/cmake-generators.7.html)
 ///
 /// ```
-/// use llvmenv::entry::CMakeGenerator;
+/// use cargo-llvm::entry::CMakeGenerator;
 /// use std::str::FromStr;
 /// assert_eq!(CMakeGenerator::from_str("Makefile").unwrap(), CMakeGenerator::Makefile);
 /// assert_eq!(CMakeGenerator::from_str("Ninja").unwrap(), CMakeGenerator::Ninja);
@@ -86,10 +109,10 @@ use crate::{config::*, error::*, resource::*};
 /// assert_eq!(CMakeGenerator::from_str("VisualStudio").unwrap(), CMakeGenerator::VisualStudio);
 /// assert!(CMakeGenerator::from_str("MySuperBuilder").is_err());
 /// ```
-#[derive(Deserialize, PartialEq, Debug, Clone)]
+#[derive(Deserialize, PartialEq, Debug, Clone, Default)]
 pub enum CMakeGenerator {
     /// Use platform default generator (without -G option)
-    Platform,
+    #[default] Platform,
     /// Unix Makefile
     Makefile,
     /// Ninja generator
@@ -98,12 +121,6 @@ pub enum CMakeGenerator {
     VisualStudio,
     /// Visual Studio 15 2017 Win64
     VisualStudioWin64,
-}
-
-impl Default for CMakeGenerator {
-    fn default() -> Self {
-        CMakeGenerator::Platform
-    }
 }
 
 impl FromStr for CMakeGenerator {
@@ -470,18 +487,21 @@ impl Entry {
 
     pub fn set_builder(&mut self, generator: &str) -> Result<()> {
         let generator = CMakeGenerator::from_str(generator)?;
-        self.setting_mut().generator = generator;
+        self.setting_mut().generator = generator.clone();
+        log::info!("CMake Generator: {:?}", generator);
         Ok(())
     }
 
     pub fn set_build_type(&mut self, build_type: BuildType) -> Result<()> {
         self.setting_mut().build_type = build_type;
+        log::info!("Build type: {:?}", build_type);
         Ok(())
     }
 
     pub fn checkout(&self) -> Result<()> {
         match self {
             Entry::Remote { url, tools, .. } => {
+                log::info!("Checkout LLVM/Clang from {}", url);
                 let src = Resource::from_url(url)?;
                 src.download(&self.src_dir()?)?;
                 for tool in tools {
@@ -489,6 +509,7 @@ impl Entry {
                     let src = Resource::from_url(&tool.url)?;
                     src.download(&path)?;
                 }
+                log::info!("Checkout done");
             }
             Entry::Local { .. } => {}
         }
@@ -561,14 +582,14 @@ impl Entry {
     pub fn build(&self, nproc: usize) -> Result<()> {
         self.configure()?;
         process::Command::new("cmake")
-            .args(&[
+            .args([
                 "--build",
                 &format!("{}", self.build_dir()?.display()),
                 "--target",
                 "install",
             ])
             .args(
-                &self
+                self
                     .setting()
                     .generator
                     .build_option(nproc, self.setting().build_type),
@@ -635,7 +656,7 @@ mod tests {
     #[test]
     fn parse_path() {
         let setting = EntrySetting {
-            path: Some("~/.config/llvmenv".into()),
+            path: Some("~/.config/cargo-llvm".into()),
             ..Default::default()
         };
         let _entry = Entry::parse_setting("path", None, setting).unwrap();
@@ -653,7 +674,7 @@ mod tests {
     fn parse_duplicated() {
         let setting = EntrySetting {
             url: Some("http://llvm.org/svn/llvm-project/llvm/trunk".into()),
-            path: Some("~/.config/llvmenv".into()),
+            path: Some("~/.config/cargo-llvm".into()),
             ..Default::default()
         };
         let _entry = Entry::parse_setting("duplicated", None, setting).unwrap();
@@ -661,7 +682,7 @@ mod tests {
 
     #[test]
     fn parse_with_version() {
-        let path = "~/.config/llvmenv";
+        let path = "~/.config/cargo-llvm";
         let version = Version::new(10, 0, 0);
         let setting = EntrySetting {
             path: Some(path.into()),

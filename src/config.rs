@@ -8,8 +8,6 @@ use crate::error::*;
 pub const APP_NAME: &str = "cargo-llvm";
 pub const ENTRY_TOML: &str = "entry.toml";
 
-const LLVM_MIRROR: &str = include_str!("llvm-mirror.toml");
-
 pub fn config_dir() -> Result<PathBuf> {
     let path = dirs::config_dir()
         .ok_or(Error::UnsupportedOS)?
@@ -44,7 +42,7 @@ pub fn init_config() -> Result<()> {
     let entry = dir.join(ENTRY_TOML);
     if !entry.exists() {
         let mut f = fs::File::create(&entry).with(&entry)?;
-        f.write(LLVM_MIRROR.as_bytes()).with(&entry)?;
+        f.write("".as_bytes()).with(&entry)?;
         info!("Created default entry setting: {}", entry.display());
         Ok(())
     } else {

@@ -180,6 +180,7 @@ fn main() -> error::Result<()> {
             nproc,
             build_type,
         } => build_entry_command(name, update, clean, discard, builder, nproc, build_type),
+        
         Commands::Current => {
             let build = build::seek_build()?;
             log::info!("Current build: {}", build.name());

@@ -85,6 +85,9 @@ pub enum Error {
     
     #[error("No EDITOR environment variable set")]
     NoEditor,
+    
+    #[error(transparent)]
+    TemplateError(#[from] indicatif::style::TemplateError),
 }
 
 impl Error {
